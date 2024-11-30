@@ -1,0 +1,153 @@
+echo '#!/bin/bash
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+WHITE='\033[1;37m' # White
+
+# Logging function
+log() {
+  echo -e "${WHITE}$1${NC}"
+}
+
+error() {
+  echo -e "${RED}[ERROR]${NC} ${WHITE}$1${NC}"
+}
+
+warning() {
+  echo -e "${YELLOW}[WARNING]${NC} ${WHITE}$1${NC}"
+}
+
+# Check if command exists
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+# Function to check and install packages
+check_and_install() {
+  local package=$1
+  if dpkg -l | grep -q "^ii $package "; then
+    log "$package is already installed"
+    return 0
+  else
+    log "Installing $package..."
+    sudo apt-get install -y "$package"
+    return $?
+  fi
+}
+
+# System update function
+update_system() {
+  log "Updating system packages..."
+  sudo apt-get update && sudo apt-get upgrade -y || error "Failed to update system packages"
+}
+
+# Setup Docker
+setup_docker() {
+  if command_exists docker; then
+    log "Docker is already installed"
+  else
+    log "Installing Docker..."
+    sudo apt-get remove docker docker-engine containerd runc || true
+    sudo apt-get update
+    sudo apt-get install -y \
+      apt-transport-https \
+      ca-certificates \
+      curl \
+      gnupg \
+      lsb-release || error "Failed to install Docker prerequisites"
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg || error "Failed to add Docker GPG key"
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu \
+      $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null || error "Failed to add Docker repository"
+    sudo apt-get update
+    sudo apt-get install -y docker-ce docker-ce-cli containerd.io || error "Failed to install Docker"
+    # Add current user to docker group
+    sudo usermod -aG docker $USER || error "Failed to add user to Docker group"
+    log "Docker installed successfully"
+  fi
+}
+
+# Setup Kubernetes
+setup_kubernetes() {
+  log "Installing Kubernetes..."
+  sudo apt-get update && sudo apt-get install -y apt-transport-https ca-certificates curl || error "Failed to install Kubernetes prerequisites"
+  sudo curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg || error "Failed to add Kubernetes GPG key"
+  echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list || error "Failed to add Kubernetes repository"
+  sudo apt-get update
+  sudo apt-get install -y kubectl || error "Failed to install kubectl"
+  log "Kubernetes installed successfully"
+}
+
+# Setup Visual Studio Code
+setup_vscode() {
+  if command_exists code; then
+    log "Visual Studio Code is already installed"
+  else
+    log "Installing Visual Studio Code..."
+    wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > packages.microsoft.gpg || error "Failed to download Microsoft GPG key"
+    sudo install -o root -g root -m 644 packages.microsoft.gpg /usr/share/keyrings/ || error "Failed to install Microsoft GPG key"
+    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" | sudo tee /etc/apt/sources.list.d/vscode.list || error "Failed to add VS Code repository"
+    sudo apt-get update
+    sudo apt-get install -y code || error "Failed to install VS Code"
+    log "Visual Studio Code installed successfully"
+  fi
+}
+
+# Setup Cloudflare Workers
+setup_cloudflare_workers() {
+  if command_exists wrangler; then
+    log "Wrangler CLI is already installed"
+  else
+    log "Installing Wrangler CLI..."
+    npm install -g wrangler || error "Failed to install Wrangler CLI"
+  fi
+
+  log "Authenticating Wrangler with Cloudflare..."
+  wrangler login || error "Failed to authenticate Wrangler with Cloudflare"
+
+  log "Initializing new Cloudflare Workers project..."
+  wrangler init my-worker || error "Failed to initialize Cloudflare Workers project"
+
+  log "Navigating to the project directory..."
+  cd my-worker || error "Failed to navigate to Cloudflare Workers project directory"
+
+  log "Publishing the worker..."
+  wrangler publish || error "Failed to publish Cloudflare Worker"
+
+  log "Cloudflare Worker setup completed successfully!"
+}
+
+# Main execution
+main() {
+  # Check if script is run with sudo
+  if [ "$EUID" -ne 0 ]; then
+    error "Please run with sudo privileges"
+    exit 1
+  fi
+  
+  # Create log directory
+  mkdir -p /var/log/setup-script
+  
+  # Update system first
+  update_system
+  
+  # Setup Docker
+  setup_docker
+  
+  # Setup Kubernetes
+  setup_kubernetes
+  
+  # Setup Visual Studio Code
+  setup_vscode
+  
+  # Setup Cloudflare Workers
+  setup_cloudflare_workers
+  
+  log "System setup completed successfully"
+}
+
+# Run the main function
+main' > setup.sh
